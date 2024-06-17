@@ -1,0 +1,93 @@
+import asyncio
+from datetime import datetime
+from bs4 import BeautifulSoup
+import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+async def fetch_table(url):
+    try:
+        print("Setting up the browser options...")
+        options = Options()
+        options.add_argument('--headless')
+        driver = webdriver.Chrome(options=options)
+
+        try:
+            iframe = driver.find_element(By.TAG_NAME, 'iframe')
+            driver.switch_to.frame(iframe)
+            print("Switched to iframe")
+        except Exception as e:
+            print(f"No iframe found: {e}")
+
+        print(f"Fetching the URL: {url}")
+        driver.get(url)
+
+        print("Waiting for the table to be present...")
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.XPATH, '//*[@id="dataTab"]/table'))
+        )
+
+        print("Waiting for the page to fully load...")
+        await asyncio.sleep(10)  # Adjust the wait time as needed
+
+        print("Parsing the page source with BeautifulSoup...")
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        table = soup.find('table', class_='table table-responsive tabledetails')
+
+        if table is None:
+            print("Table not found with class 'alltable'. Trying a different method...")
+            table = soup.find('table')  # Fallback to find any table
+
+        driver.quit()
+
+        if table is None:
+            print("No table found on the webpage.")
+        else:
+            print("Table found and parsed successfully.")
+
+        return table
+
+    except Exception as e:
+        print(f"Error occurred fetching table: {e}")
+        driver.quit()
+
+async def scrape_and_save_to_csv():
+    try:
+        url = 'https://www.weathersa.co.za/home/sevendaysdetailed?city=_Johannesburg'
+        table = await fetch_table(url)
+
+        if table is None:
+            print("No table found, exiting the script.")
+            return
+
+        # Extract headers
+        print("Extracting headers...")
+        headers = [header.text for header in table.find_all('th')]
+
+        # Extract rows
+        print("Extracting rows...")
+        rows = []
+        for row in table.find_all('tr')[1:]:  # Skip the header row
+            rows.append([cell.text for cell in row.find_all('td')])
+
+        # Create DataFrame
+        print("Creating DataFrame...")
+        df = pd.DataFrame(rows, columns=headers)
+
+        # Save to CSV
+        filename = f'weather_joburg_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        print(f"Saving data to {filename}...")
+        df.to_csv(filename, index=False)
+        print(f"Data saved to {filename}")
+
+    except Exception as e:
+        print(f"Error occurred in scrape: {e}")
+
+def main():
+    asyncio.run(scrape_and_save_to_csv())
+
+if __name__ == "__main__":
+    main() 
